@@ -20,7 +20,7 @@ async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, m
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার
+# স্টার্ট কমান্ড হ্যান্ডলার (Updated)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
@@ -28,32 +28,46 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         post_id = args[0]
         
-        # vid_ থাকলে সেটা সরিয়ে মূল Message ID বের করা
+        # vid_ থাকলে সেটা সরিয়ে ফেলা
         if post_id.startswith("vid_"):
             post_id = post_id.replace("vid_", "")
 
         try:
+            # যদি post_id একটি সংখ্যা হয় (যেমন: 2, 10, 15)
+            if post_id.isdigit():
+                msg_id = int(post_id)
+            else:
+                # যদি মিনি অ্যাপ থেকে ফায়ারবেসের কি বা আইডি পাঠানো হয়,
+                # তবে সেখান থেকে শুধু সংখ্যা বের করার লজিক
+                digits = ''.join(filter(str.isdigit, post_id))
+                if digits:
+                    msg_id = int(digits)
+                else:
+                    raise ValueError("No numeric message ID found in parameter")
+
             # প্রাইভেট চ্যানেল থেকে পোস্টটি ইউজারের ইনবক্সে কপি করে সেন্ড করা
             sent_msg = await context.bot.copy_message(
                 chat_id=chat_id,
                 from_chat_id=STORAGE_CHANNEL_ID,
-                message_id=int(post_id)
+                message_id=msg_id
             )
             
             # সতর্কতামূলক মেসেজ সেন্ড
             warning_msg = await context.bot.send_message(
                 chat_id=chat_id,
-                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!"
+                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
+                parse_mode="Markdown"
             )
 
-            # ১ ঘণ্টা পর ভিডিও এবং সতর্কতামূলক মেসেজ দুটোই ডিলিট করা
+            # ১ ঘণ্টা (৩৬০০ সেকেন্ড) পর ভিডিও এবং সতর্কতামূলক মেসেজ ডিলিট
             asyncio.create_task(delete_after_delay(context, chat_id, sent_msg.message_id, 3600))
             asyncio.create_task(delete_after_delay(context, chat_id, warning_msg.message_id, 3600))
 
         except Exception as e:
-            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
+            print(f"Error sending message: {e}")
+            await update.message.reply_text(f"❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে। (Error Details: {e})")
     else:
-        await update.message.reply_text("👋 স্বাগতম! ভিডিও ডাউনলোড করতে মিনি অ্যাপ ব্যবহার করুন।")
+        await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
 # Render-এর পোর্টের জন্য ডামি ওয়েব সার্ভার
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
