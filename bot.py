@@ -5,19 +5,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import firebase_admin
-from firebase_admin import credentials, db
 
-# পরিবেশের ভ্যারিয়েবল (Environment Variable) থেকে সিক্রেট তথ্য নেওয়া
-FIREBASE_CREDS = os.getenv("FIREBASE_CREDENTIALS")
+# পরিবেশের ভ্যারিয়েবল থেকে বট টোকেন নেওয়া
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-if not firebase_admin._apps and FIREBASE_CREDS:
-    cred_dict = json.loads(FIREBASE_CREDS)
-    cred = credentials.Certificate(cred_dict)
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://mini-app-link-default-rtdb.firebaseio.com'
-    })
+# আপনার প্রাইভেট চ্যানেলের Chat ID
+STORAGE_CHANNEL_ID = -1004375264416
 
 # ১ ঘণ্টা (৩৬০০ সেকেন্ড) পর মেসেজ স্বয়ংক্রিয়ভাবে মুছে ফেলার ফাংশন
 async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = 3600):
@@ -32,41 +25,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
 
-    if args and args[0].startswith("vid_"):
-        video_key = args[0].replace("vid_", "")
+    if args:
+        post_id = args[0]
         
-        ref = db.reference(f'tasks/{video_key}')
-        video_data = ref.get()
+        # vid_ থাকলে সেটা সরিয়ে মূল Message ID বের করা
+        if post_id.startswith("vid_"):
+            post_id = post_id.replace("vid_", "")
 
-        if video_data:
-            title = video_data.get('title', 'Requested Video')
-            video_url = video_data.get('url', '')
-
-            caption_text = (
-                f"🎬 **{title}**\n\n"
-                f"⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর স্বয়ংক্রিয়ভাবে মুছে যাবে (Vanished)!"
+        try:
+            # প্রাইভেট চ্যানেল থেকে পোস্টটি ইউজারের ইনবক্সে কপি করে সেন্ড করা
+            sent_msg = await context.bot.copy_message(
+                chat_id=chat_id,
+                from_chat_id=STORAGE_CHANNEL_ID,
+                message_id=int(post_id)
+            )
+            
+            # সতর্কতামূলক মেসেজ সেন্ড
+            warning_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!"
             )
 
-            try:
-                sent_msg = await context.bot.send_video(
-                    chat_id=chat_id,
-                    video=video_url,
-                    caption=caption_text,
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                msg_content = f"{caption_text}\n\n🔗 **লিংক:** {video_url}"
-                sent_msg = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=msg_content,
-                    parse_mode="Markdown"
-                )
-
+            # ১ ঘণ্টা পর ভিডিও এবং সতর্কতামূলক মেসেজ দুটোই ডিলিট করা
             asyncio.create_task(delete_after_delay(context, chat_id, sent_msg.message_id, 3600))
-        else:
-            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি।")
+            asyncio.create_task(delete_after_delay(context, chat_id, warning_msg.message_id, 3600))
+
+        except Exception as e:
+            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
     else:
-        await update.message.reply_text("👋 স্বাগতম! ভিডিও আনলক করতে মিনি অ্যাপ ব্যবহার করুন।")
+        await update.message.reply_text("👋 স্বাগতম! ভিডিও ডাউনলোড করতে মিনি অ্যাপ ব্যবহার করুন।")
 
 # Render-এর পোর্টের জন্য ডামি ওয়েব সার্ভার
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
