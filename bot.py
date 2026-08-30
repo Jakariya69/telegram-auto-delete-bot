@@ -43,7 +43,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # সতর্কতামূলক মেসেজ সেন্ড
             warning_msg = await context.bot.send_message(
                 chat_id=chat_id,
-                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!"
+                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
+                parse_mode="Markdown"
             )
 
             # ১ ঘণ্টা পর ভিডিও এবং সতর্কতামূলক মেসেজ দুটোই ডিলিট করা
@@ -59,8 +60,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/html")
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
+
+    # UptimeRobot-এর HEAD Request হ্যান্ডেল করার জন্য (501 error সমাধান করতে)
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
+    # ব্যাকগ্রাউন্ড অতিরিক্ত লগ বন্ধ রাখতে
+    def log_message(self, format, *args):
+        return
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
