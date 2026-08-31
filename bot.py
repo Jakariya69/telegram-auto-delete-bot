@@ -12,13 +12,17 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # আপনার প্রাইভেট চ্যানেলের Chat ID
 STORAGE_CHANNEL_ID = -1004375264416
 
-# ১ ঘণ্টা (৩৬০০ সেকেন্ড) পর মেসেজ স্বয়ংক্রিয়ভাবে মুছে ফেলার ফাংশন
-async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = 3600):
-    await asyncio.sleep(delay)
+# JobQueue থেকে কল হওয়া মেসেজ ডিলিট করার ফাংশন
+async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
+    job_data = context.job.data
+    chat_id = job_data['chat_id']
+    message_id = job_data['message_id']
+    
     try:
         await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        print(f"Successfully deleted message {message_id} in chat {chat_id}")
     except Exception as e:
-        print(f"Delete failed: {e}")
+        print(f"Delete failed for message {message_id}: {e}")
 
 # স্টার্ট কমান্ড হ্যান্ডলার
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -47,9 +51,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
 
-            # ১ ঘণ্টা পর ভিডিও এবং সতর্কতামূলক মেসেজ দুটোই ডিলিট করা
-            asyncio.create_task(delete_after_delay(context, chat_id, sent_msg.message_id, 3600))
-            asyncio.create_task(delete_after_delay(context, chat_id, warning_msg.message_id, 3600))
+            # JobQueue ব্যবহার করে ৩৬০০ সেকেন্ড (১ ঘণ্টা) পর ডিলিট করার শিডিউল সেট
+            context.job_queue.run_once(
+                delete_message_job, 
+                when=3600, 
+                data={'chat_id': chat_id, 'message_id': sent_msg.message_id}
+            )
+            context.job_queue.run_once(
+                delete_message_job, 
+                when=3600, 
+                data={'chat_id': chat_id, 'message_id': warning_msg.message_id}
+            )
 
         except Exception as e:
             await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
@@ -64,7 +76,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
 
-    # UptimeRobot-এর HEAD Request হ্যান্ডেল করার জন্য (501 error সমাধান করতে)
+    # UptimeRobot-এর HEAD Request হ্যান্ডেল করার জন্য
     def do_HEAD(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
