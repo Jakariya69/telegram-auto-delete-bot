@@ -87,8 +87,8 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
     if not channel_post.reply_markup:
         post_text = channel_post.text or channel_post.caption or ""
         
-        # টেক্সট থেকে vid_123 বা ID: 123 বের করার চেষ্টা
-        match = re.search(r'(?:vid_|id[:=]?\s*)(\d+)', post_text, re.IGNORECASE)
+        # টেক্সট থেকে vid_123, ID: 123 কিংবা টেলিগ্রামের চ্যানেলের লিংক থেকে আইডি বের করার লজিক
+        match = re.search(r'(?:vid_|id[:=]?\s*|\/c\/\d+\/)(\d+)', post_text, re.IGNORECASE)
         
         if match:
             video_id = match.group(1)
@@ -150,8 +150,8 @@ if __name__ == '__main__':
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         
-        # পাবলিক চ্যানেলের পোস্টে অটো বাটন যুক্ত করার হ্যান্ডলার
-        app.add_handler(MessageHandler(filters.ChatType.CHANNEL, auto_add_buttons_to_channel))
+        # পাবলিক চ্যানেলের পোস্টে অটো বাটন যুক্ত করার হ্যান্ডলার (আপডেট করা ফিল্টারসহ)
+        app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, auto_add_buttons_to_channel))
 
         app.run_polling()
     else:
