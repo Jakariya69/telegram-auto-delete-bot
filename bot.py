@@ -2,7 +2,6 @@ import asyncio
 import os
 import json
 import re
-import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -42,6 +41,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         post_id = args[0]
         
+        # vid_ থাকলে সেটা সরিয়ে মূল Message ID বের করা
         if post_id.startswith("vid_"):
             post_id = post_id.replace("vid_", "")
 
@@ -50,15 +50,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent_msg = await context.bot.copy_message(
                 chat_id=chat_id,
                 from_chat_id=STORAGE_CHANNEL_ID,
-                message_id=int(post_id) if post_id.isdigit() else 5
+                message_id=int(post_id)
             )
             
+            # সতর্কতামূলক মেসেজ সেন্ড
             warning_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
                 parse_mode="Markdown"
             )
 
+            # JobQueue ব্যবহার করে ৩৬০০ সেকেন্ড (১ ঘণ্টা) পর ডিলিট করার শিডিউল সেট
             context.job_queue.run_once(
                 delete_message_job, 
                 when=3600, 
@@ -75,7 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে এবং আনলক করতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# ---------------- স্মার্ট অটো-বাটন ও টেক্সট ক্লিনার হ্যান্ডলার ----------------
+# ---------------- স্মার্ট অটো-বাটন হ্যান্ডলার ----------------
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
@@ -85,30 +87,20 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
     if not channel_post.reply_markup:
         post_text = channel_post.text or channel_post.caption or ""
         
-        # টেক্সট থেকে ভিডিও আইডি বা নাম্বার খুঁজে বের করার লজিক
+        # টেক্সট থেকে vid_123, ID: 123 কিংবা টেলিগ্রামের চ্যানেলের লিংক থেকে আইডি বের করার লজিক
         match = re.search(r'(?:vid_|id[:=]?\s*|\/c\/\d+\/)(\d+)', post_text, re.IGNORECASE)
         
         if match:
-            original_id = match.group(1)
-            
-            # অন্যেরটার মতো ইউনিক হাশ কোড তৈরি করা
-            unique_code = uuid.uuid5(uuid.NAMESPACE_DNS, str(original_id)).hex[:16]
-            
-            # মিনি অ্যাপের লিংক
-            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={unique_code}"
+            video_id = match.group(1)
+            # নির্দিষ্ট ভিডিও ওপেন করার ডাইরেক্ট অ্যাপ লিংক
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{video_id}"
             button_text = "🔴 WATCH THIS VIDEO ONLINE ⚡"
-            
-            # 💡 ম্যাজিক অংশ: পোস্টের টেক্সট থেকে "vid_5" বা আইডি অংশটুকু রিমুভ করে দেওয়া যাতে শুধু আপনার টাইটেল থাকে
-            cleaned_text = re.sub(r'(?:vid_)?\d+', '', post_text).strip()
-            # যদি টেক্সট একেবারে ফাঁকা হয়ে যায়, তবে আসল টাইটেল ঠিক রাখা
-            if not cleaned_text:
-                cleaned_text = post_text
         else:
+            # সাধারণ অ্যাপ হোমপেজ লিংক
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
             button_text = "🔴 OPEN VIRAL ZONE APP ⚡"
-            cleaned_text = post_text
 
-        # ইনলাইন বাটন লিস্ট
+        # লাল, হলুদ এবং নীল কালারফুল বাটন
         keyboard = [
             [InlineKeyboardButton(button_text, url=app_link)],
             [
@@ -119,23 +111,14 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
-            # চ্যাটের মূল টেক্সট এডিট করে আইডি মুছে ফেলা এবং সাথে বাটন যুক্ত করা
-            if channel_post.text:
-                await context.bot.edit_message_text(
-                    chat_id=channel_post.chat_id,
-                    message_id=channel_post.message_id,
-                    text=cleaned_text,
-                    reply_markup=reply_markup
-                )
-            elif channel_post.caption:
-                await context.bot.edit_message_caption(
-                    chat_id=channel_post.chat_id,
-                    message_id=channel_post.message_id,
-                    caption=cleaned_text,
-                    reply_markup=reply_markup
-                )
+            # চ্যাটের পোস্টে সরাসরি বাটন যুক্ত করা
+            await context.bot.edit_message_reply_markup(
+                chat_id=channel_post.chat_id,
+                message_id=channel_post.message_id,
+                reply_markup=reply_markup
+            )
         except Exception as e:
-            print(f"Error updating message & buttons: {e}")
+            print(f"Error adding buttons: {e}")
 
 # Render-এর পোর্টের জন্য ডামি ওয়েব সার্ভার
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -160,10 +143,14 @@ def run_dummy_server():
 
 if __name__ == '__main__':
     if BOT_TOKEN:
+        # ব্যাকগ্রাউন্ড পোর্টের জন্য থ্রেড চালু করা
         threading.Thread(target=run_dummy_server, daemon=True).start()
         
+        # বট চালু
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
+        
+        # প্রাইভেট বা পাবলিক যেকোনো চ্যানেল থেকে আসা পোস্ট ট্র্যাক করার জন্য আপডেট করা ফিল্টার
         app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_add_buttons_to_channel))
 
         app.run_polling()
