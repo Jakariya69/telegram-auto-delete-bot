@@ -150,8 +150,8 @@ if __name__ == '__main__':
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         
-        # পাবলিক চ্যানেলের পোস্টে অটো বাটন যুক্ত করার হ্যান্ডলার (আপডেট করা ফিল্টারসহ)
-        app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, auto_add_buttons_to_channel))
+        # প্রাইভেট বা পাবলিক যেকোনো চ্যানেল থেকে আসা পোস্ট ট্র্যাক করার জন্য আপডেট করা ফিল্টার
+        app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_add_buttons_to_channel))
 
         app.run_polling()
     else:
