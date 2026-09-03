@@ -4,11 +4,15 @@ import json
 import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import urllib.request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 # পরিবেশের ভ্যারিয়েবল থেকে বট টোকেন নেওয়া
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# ফায়ারবেস ডাটাবেজের ইউআরএল
+FIREBASE_DB_URL = "https://mini-app-link-default-rtdb.firebaseio.com/tasks.json"
 
 # আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID
 STORAGE_CHANNEL_ID = -1004375264416
@@ -21,6 +25,21 @@ BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
+# ফায়ারবেস থেকে ডাটা ফেচ করে সিরিয়াল অনুযায়ী আসল কি বের করার ফাংশন
+def get_firebase_key_by_index(index_num):
+    try:
+        req = urllib.request.Request(FIREBASE_DB_URL)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            if data and isinstance(data, dict):
+                keys_list = list(data.keys())
+                target_index = index_num - 1
+                if 0 <= target_index < len(keys_list):
+                    return keys_list[target_index]
+    except Exception as e:
+        print(f"Firebase fetch error: {e}")
+    return None
+
 # JobQueue থেকে কল হওয়া মেসেজ ডিলিট করার ফাংশন
 async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     job_data = context.job.data
@@ -29,78 +48,77 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     
     try:
         await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        print(f"Successfully deleted message {message_id} in chat {chat_id}")
     except Exception as e:
-        print(f"Delete failed for message {message_id}: {e}")
+        print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার (ইউজার যখন অ্যাপ বা বোতামে ক্লিক করবে)
+# স্টার্ট কমান্ড হ্যান্ডলার
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
 
     if args:
-        post_id = args[0]
+        video_key = args[0]
         
-        # vid_ থাকলে সেটা সরিয়ে মূল Message ID বের করা
-        if post_id.startswith("vid_"):
-            post_id = post_id.replace("vid_", "")
+        # যদি vid_ ফরম্যাটে আসে (যেমন vid_1)
+        if video_key.startswith("vid_"):
+            num_str = video_key.replace("vid_", "")
+            if num_str.isdigit():
+                real_firebase_key = get_firebase_key_by_index(int(num_str))
+                if real_firebase_key:
+                    video_key = real_firebase_key
 
         try:
-            # প্রাইভেট চ্যানেল থেকে পোস্টটি ইউজারের ইনবক্সে কপি করে সেন্ড করা
+            # যদি ফায়ারবেস কি সরাসরি মেসেজ আইডি না হয়ে থাকে, তবে আপনার স্টোরেজ চ্যানেলের নির্দিষ্ট কোনো ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করে দিতে পারেন 
+            # অথবা আপনার প্রয়োজনমতো এখানে মেসেজ আইডি হ্যান্ডেল করতে পারেন।
+            msg_id = int(video_key) if video_key.isdigit() else 5 
+            
             sent_msg = await context.bot.copy_message(
                 chat_id=chat_id,
                 from_chat_id=STORAGE_CHANNEL_ID,
-                message_id=int(post_id)
+                message_id=msg_id
             )
             
-            # সতর্কতামূলক মেসেজ সেন্ড
             warning_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
                 parse_mode="Markdown"
             )
 
-            # JobQueue ব্যবহার করে ৩৬০০ সেকেন্ড (১ ঘণ্টা) পর ডিলিট করার শিডিউল সেট
-            context.job_queue.run_once(
-                delete_message_job, 
-                when=3600, 
-                data={'chat_id': chat_id, 'message_id': sent_msg.message_id}
-            )
-            context.job_queue.run_once(
-                delete_message_job, 
-                when=3600, 
-                data={'chat_id': chat_id, 'message_id': warning_msg.message_id}
-            )
+            context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': sent_msg.message_id})
+            context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': warning_msg.message_id})
 
         except Exception as e:
-            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
+            print(f"Copy message error: {e}")
+            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা লিংকটি মেয়াদোত্তীর্ণ।")
     else:
-        await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে এবং আনলক করতে মিনি অ্যাপ ব্যবহার করুন।")
+        await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# ---------------- স্মার্ট অটো-বাটন হ্যান্ডলার ----------------
+# অটো-বাটন এবং টেক্সট ক্লিনার হ্যান্ডলার
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
         return
 
-    # যদি পোস্টে ইতিমধ্যে কোনো বাটন যুক্ত না থাকে
     if not channel_post.reply_markup:
         post_text = channel_post.text or channel_post.caption or ""
         
-        # টেক্সট থেকে vid_123, ID: 123 কিংবা টেলিগ্রামের চ্যানেলের লিংক থেকে আইডি বের করার লজিক
-        match = re.search(r'(?:vid_|id[:=]?\s*|\/c\/\d+\/)(\d+)', post_text, re.IGNORECASE)
+        # পোস্ট থেকে vid_1 বা শুধু নাম্বার ট্র্যাক করার লজিক
+        match = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
         
         if match:
-            video_id = match.group(1)
-            # নির্দিষ্ট ভিডিও ওপেন করার ডাইরেক্ট অ্যাপ লিংক
-            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{video_id}"
+            vid_number = match.group(1)
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
             button_text = "🔴 WATCH THIS VIDEO ONLINE ⚡"
+            
+            cleaned_text = re.sub(r'vid_\d+', '', post_text).strip()
+            if not cleaned_text:
+                cleaned_text = "✨ ভিডিওটি দেখতে নিচের বাটনে ক্লিক করুন:"
         else:
-            # সাধারণ অ্যাপ হোমপেজ লিংক
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
             button_text = "🔴 OPEN VIRAL ZONE APP ⚡"
+            cleaned_text = post_text
 
-        # লাল, হলুদ এবং নীল কালারফুল বাটন
+        # একদম গোছালো এবং বক্স স্টাইল বাটন লেআউট
         keyboard = [
             [InlineKeyboardButton(button_text, url=app_link)],
             [
@@ -111,28 +129,30 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
-            # চ্যাটের পোস্টে সরাসরি বাটন যুক্ত করা
-            await context.bot.edit_message_reply_markup(
-                chat_id=channel_post.chat_id,
-                message_id=channel_post.message_id,
-                reply_markup=reply_markup
-            )
+            if channel_post.text:
+                await context.bot.edit_message_text(
+                    chat_id=channel_post.chat_id,
+                    message_id=channel_post.message_id,
+                    text=cleaned_text,
+                    reply_markup=reply_markup
+                )
+            elif channel_post.caption:
+                await context.bot.edit_message_caption(
+                    chat_id=channel_post.chat_id,
+                    message_id=channel_post.message_id,
+                    caption=cleaned_text,
+                    reply_markup=reply_markup
+                )
         except Exception as e:
-            print(f"Error adding buttons: {e}")
+            print(f"Error: {e}")
 
-# Render-এর পোর্টের জন্য ডামি ওয়েব সার্ভার
+# ডামি সার্ভার রেন্ডার পোর্টের জন্য
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-
     def log_message(self, format, *args):
         return
 
@@ -143,16 +163,8 @@ def run_dummy_server():
 
 if __name__ == '__main__':
     if BOT_TOKEN:
-        # ব্যাকগ্রাউন্ড পোর্টের জন্য থ্রেড চালু করা
         threading.Thread(target=run_dummy_server, daemon=True).start()
-        
-        # বট চালু
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
-        
-        # প্রাইভেট বা পাবলিক যেকোনো চ্যানেল থেকে আসা পোস্ট ট্র্যাক করার জন্য আপডেট করা ফিল্টার
         app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, auto_add_buttons_to_channel))
-
         app.run_polling()
-    else:
-        print("BOT_TOKEN পাওয়া যায়নি!")
