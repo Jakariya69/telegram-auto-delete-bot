@@ -1,16 +1,25 @@
 import asyncio
 import os
 import json
+import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 # পরিবেশের ভ্যারিয়েবল থেকে বট টোকেন নেওয়া
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# আপনার প্রাইভেট চ্যানেলের Chat ID
+# আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID
 STORAGE_CHANNEL_ID = -1004375264416
+
+# আপনার প্রদান করা মূল ও ব্যাকআপ চ্যানেলের ইনভাইট লিংক
+MAIN_CHANNEL_URL = "https://t.me/+2cFW7aJB6_pkODc1"
+BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
+
+# বটের ইউজারনেম ও মিনি অ্যাপের নাম
+BOT_USERNAME = "arohimimvirallinkjk_bot"
+APP_NAME = "Master_King"
 
 # JobQueue থেকে কল হওয়া মেসেজ ডিলিট করার ফাংশন
 async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
@@ -24,7 +33,7 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed for message {message_id}: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার
+# স্টার্ট কমান্ড হ্যান্ডলার (ইউজার যখন অ্যাপ বা বোতামে ক্লিক করবে)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
@@ -66,7 +75,50 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
     else:
-        await update.message.reply_text("👋 স্বাগতম! ভিডিও ডাউনলোড করতে মিনি অ্যাপ ব্যবহার করুন।")
+        await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে এবং আনলক করতে মিনি অ্যাপ ব্যবহার করুন।")
+
+# ---------------- স্মার্ট অটো-বাটন হ্যান্ডলার ----------------
+async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    channel_post = update.channel_post
+    if not channel_post:
+        return
+
+    # যদি পোস্টে ইতিমধ্যে কোনো বাটন যুক্ত না থাকে
+    if not channel_post.reply_markup:
+        post_text = channel_post.text or channel_post.caption or ""
+        
+        # টেক্সট থেকে vid_123 বা ID: 123 বের করার চেষ্টা
+        match = re.search(r'(?:vid_|id[:=]?\s*)(\d+)', post_text, re.IGNORECASE)
+        
+        if match:
+            video_id = match.group(1)
+            # নির্দিষ্ট ভিডিও ওপেন করার ডাইরেক্ট অ্যাপ লিংক
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{video_id}"
+            button_text = "🔴 WATCH THIS VIDEO ONLINE ⚡"
+        else:
+            # সাধারণ অ্যাপ হোমপেজ লিংক
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
+            button_text = "🔴 OPEN VIRAL ZONE APP ⚡"
+
+        # লাল, হলুদ এবং নীল কালারফুল বাটন
+        keyboard = [
+            [InlineKeyboardButton(button_text, url=app_link)],
+            [
+                InlineKeyboardButton("🟡 MAIN CHANNEL", url=MAIN_CHANNEL_URL),
+                InlineKeyboardButton("🔵 BACKUP CHANNEL", url=BACKUP_CHANNEL_URL)
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        try:
+            # চ্যাটের পোস্টে সরাসরি বাটন যুক্ত করা
+            await context.bot.edit_message_reply_markup(
+                chat_id=channel_post.chat_id,
+                message_id=channel_post.message_id,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            print(f"Error adding buttons: {e}")
 
 # Render-এর পোর্টের জন্য ডামি ওয়েব সার্ভার
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -76,13 +128,11 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
 
-    # UptimeRobot-এর HEAD Request হ্যান্ডেল করার জন্য
     def do_HEAD(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
 
-    # ব্যাকগ্রাউন্ড অতিরিক্ত লগ বন্ধ রাখতে
     def log_message(self, format, *args):
         return
 
@@ -99,6 +149,10 @@ if __name__ == '__main__':
         # বট চালু
         app = ApplicationBuilder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
+        
+        # পাবলিক চ্যানেলের পোস্টে অটো বাটন যুক্ত করার হ্যান্ডলার
+        app.add_handler(MessageHandler(filters.ChatType.CHANNEL, auto_add_buttons_to_channel))
+
         app.run_polling()
     else:
         print("BOT_TOKEN পাওয়া যায়নি!")
