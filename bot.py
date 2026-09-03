@@ -17,15 +17,17 @@ FIREBASE_DB_URL = "https://mini-app-link-default-rtdb.firebaseio.com/tasks.json"
 # আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID
 STORAGE_CHANNEL_ID = -1004375264416
 
-# আপনার প্রদান করা মূল ও ব্যাকআপ চ্যানেলের ইনভাইট লিংক
-MAIN_CHANNEL_URL = "https://t.me/+2cFW7aJB6_pkODc1"
+# আপনার ব্লগের লিংক (দ্বিতীয় বাটনের জন্য)
+BLOG_URL = "https://Bdnet24tv.blogspot.com"
+
+# আপনার ব্যাকআপ চ্যানেলের ইনভাইট লিংক
 BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 
 # বটের ইউজারনেম ও মিনি অ্যাপের নাম
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
-# ফায়ারবেস থেকে ডাটা ফেচ করার নিরাপদ ও অপ্টিমাইজড ফাংশন (টাইমআউট সহ)
+# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন
 def get_firebase_key_by_index(index_num):
     try:
         req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
@@ -51,7 +53,7 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার
+# স্টার্ট কমান্ড হ্যান্ডলার (মিনি অ্যাপ থেকে আসা আসল কি হ্যান্ডেল করার জন্য)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
@@ -59,7 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         video_key = args[0]
         
-        # যদি vid_ ফরম্যাটে আসে (যেমন vid_1)
+        # যদি লিংকে vid_ ফরম্যাটে আসে, তবে ফায়ারবেস থেকে আসল কি বের করে আনা
         if video_key.startswith("vid_"):
             num_str = video_key.replace("vid_", "")
             if num_str.isdigit():
@@ -68,7 +70,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     video_key = real_firebase_key
 
         try:
-            # যদি ফায়ারবেস কি সরাসরি মেসেজ আইডি না হয়ে থাকে, তবে স্টোরেজ চ্যানেলের ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করা
+            # ফায়ারবেস কি সরাসরি মেসেজ আইডি না হলে স্টোরেজ চ্যানেলের ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করা
             msg_id = int(video_key) if video_key.isdigit() else 5 
             
             sent_msg = await context.bot.copy_message(
@@ -105,25 +107,30 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         match = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
         
         if match:
-            vid_number = match.group(1)
-            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
-            button_text = "🔴 WATCH THIS VIDEO ONLINE ⚡"
+            vid_number = int(match.group(1))
+            # ফায়ারবেস থেকে সিরিয়াল নম্বর দিয়ে আসল ইউনিক কি (Key) বের করা
+            real_firebase_key = get_firebase_key_by_index(vid_number)
+            
+            if real_firebase_key:
+                app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={real_firebase_key}"
+            else:
+                app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
+                
+            button_text = "Video Play 🥵"
             
             cleaned_text = re.sub(r'vid_\d+', '', post_text).strip()
             if not cleaned_text:
                 cleaned_text = "✨ ভিডিওটি দেখতে নিচের বাটনে ক্লিক করুন:"
         else:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
-            button_text = "🔴 OPEN VIRAL ZONE APP ⚡"
+            button_text = "Video Play 🥵"
             cleaned_text = post_text
 
-        # একদম গোছালো এবং বক্স স্টাইল বাটন লেআউট
+        # বাটন লেআউট: দ্বিতীয় বাটনে আপনার ব্লগ সাইটের লিংক বসানো হয়েছে
         keyboard = [
             [InlineKeyboardButton(button_text, url=app_link)],
-            [
-                InlineKeyboardButton("🟡 MAIN CHANNEL", url=MAIN_CHANNEL_URL),
-                InlineKeyboardButton("🔵 BACKUP CHANNEL", url=BACKUP_CHANNEL_URL)
-            ]
+            [InlineKeyboardButton("🌐 Visit Blog Site", url=BLOG_URL)],
+            [InlineKeyboardButton("Backup channel", url=BACKUP_CHANNEL_URL)]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -145,7 +152,7 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         except Exception as e:
             print(f"Error: {e}")
 
-# ডামি সার্ভার রেন্ডার পোর্টের জন্য (UptimeRobot 501 Error সমাধান সহ)
+# ডামি সার্ভার রেন্ডার পোর্টের জন্য
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
