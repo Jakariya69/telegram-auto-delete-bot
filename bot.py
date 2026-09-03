@@ -25,11 +25,11 @@ BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
-# ফায়ারবেস থেকে ডাটা ফেচ করে সিরিয়াল অনুযায়ী আসল কি বের করার ফাংশন
+# ফায়ারবেস থেকে ডাটা ফেচ করার নিরাপদ ও অপ্টিমাইজড ফাংশন (টাইমআউট সহ)
 def get_firebase_key_by_index(index_num):
     try:
-        req = urllib.request.Request(FIREBASE_DB_URL)
-        with urllib.request.urlopen(req) as response:
+        req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode())
             if data and isinstance(data, dict):
                 keys_list = list(data.keys())
@@ -68,8 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     video_key = real_firebase_key
 
         try:
-            # যদি ফায়ারবেস কি সরাসরি মেসেজ আইডি না হয়ে থাকে, তবে আপনার স্টোরেজ চ্যানেলের নির্দিষ্ট কোনো ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করে দিতে পারেন 
-            # অথবা আপনার প্রয়োজনমতো এখানে মেসেজ আইডি হ্যান্ডেল করতে পারেন।
+            # যদি ফায়ারবেস কি সরাসরি মেসেজ আইডি না হয়ে থাকে, তবে স্টোরেজ চ্যানেলের ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করা
             msg_id = int(video_key) if video_key.isdigit() else 5 
             
             sent_msg = await context.bot.copy_message(
@@ -146,13 +145,19 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         except Exception as e:
             print(f"Error: {e}")
 
-# ডামি সার্ভার রেন্ডার পোর্টের জন্য
+# ডামি সার্ভার রেন্ডার পোর্টের জন্য (UptimeRobot 501 Error সমাধান সহ)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/html")
         self.end_headers()
         self.wfile.write(b"Bot is running successfully!")
+        
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
     def log_message(self, format, *args):
         return
 
