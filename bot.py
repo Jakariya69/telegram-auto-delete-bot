@@ -56,26 +56,45 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার (মিনি অ্যাপ থেকে আসা আসল কি হ্যান্ডেল করার জন্য)
+# স্টার্ট কমান্ড হ্যান্ডলার (সঠিকভাবে ভিডিও পাঠানোর লজিক সহ)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
 
     if args:
-        video_key = args[0]
-        
-        # যদি লিংকে vid_ ফরম্যাটে আসে, তবে ফায়ারবেস থেকে সঠিক কি বের করে আনা
-        if video_key.startswith("vid_"):
-            num_str = video_key.replace("vid_", "")
-            if num_str.isdigit():
-                real_firebase_key = get_firebase_key_by_index(int(num_str))
-                if real_firebase_key:
-                    video_key = real_firebase_key
+        incoming_param = args[0]
+        msg_id = 5  # ডিফল্ট ফলব্যাক
 
         try:
-            # ফায়ারবেস কি সরাসরি মেসেজ আইডি না হলে স্টোরেজ চ্যানেলের ডিফল্ট মেসেজ আইডি (যেমন: 5) সেট করা
-            msg_id = int(video_key) if video_key.isdigit() else 5 
-            
+            # ১. যদি প্যারামিটারটি vid_ ফরম্যাটে আসে (যেমন: vid_6)
+            if incoming_param.startswith("vid_"):
+                num_str = incoming_param.replace("vid_", "")
+                if num_str.isdigit():
+                    vid_num = int(num_str)
+                    # সরাসরি চ্যানেলের মেসেজ আইডি হিসেবে ইনডেক্স নম্বরটি ব্যবহার করা
+                    msg_id = vid_num
+
+            # ২. যদি প্যারামিটারটি সরাসরি ফায়ারবেসের ইউনিক কি (Key) হিসেবে আসে
+            else:
+                # ফায়ারবেস থেকে ডাটা চেক করে দেখা যে এই কি-এর বিপরীতে কোনো মেসেজ আইডি আছে কি না
+                req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    if data and isinstance(data, dict) and incoming_param in data:
+                        item_val = data[incoming_param]
+                        # যদি ডাটার ভেতর সরাসরি মেসেজ আইডি সেভ করা থাকে
+                        if isinstance(item_val, dict) and 'message_id' in item_val:
+                            msg_id = int(item_val['message_id'])
+                        elif isinstance(item_val, int):
+                            msg_id = item_val
+                        else:
+                            # যদি কি দিয়ে সরাসরি না মেলে, তবে কি-এর পজিশন বা ইনডেক্স বের করে হিসাব করা
+                            keys_list = list(data.keys())
+                            keys_list.reverse()
+                            if incoming_param in keys_list:
+                                msg_id = keys_list.index(incoming_param) + 1
+
+            # স্টোরেজ চ্যানেল থেকে নির্দিষ্ট মেসেজটি কপি করে ইউজারের কাছে পাঠানো
             sent_msg = await context.bot.copy_message(
                 chat_id=chat_id,
                 from_chat_id=STORAGE_CHANNEL_ID,
@@ -111,13 +130,8 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         
         if match:
             vid_number = int(match.group(1))
-            # ফায়ারবেস থেকে সিরিয়াল নম্বর দিয়ে সঠিক ইউনিক কি (Key) বের করা
-            real_firebase_key = get_firebase_key_by_index(vid_number)
-            
-            if real_firebase_key:
-                app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={real_firebase_key}"
-            else:
-                app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
+            # চ্যানেলের বাটনের জন্য সরাসরি vid_ ফরম্যাট লিংক তৈরি করা যাতে বট খুব সহজে ধরে ফেলতে পারে
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
                 
             button_text = "Video Play 🥵"
             
