@@ -14,7 +14,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # ফায়ারবেস ডাটাবেজের ইউআরএল
 FIREBASE_DB_URL = "https://mini-app-link-default-rtdb.firebaseio.com/tasks.json"
 
-# আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID
+# আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID (এই চ্যানেলে কোনো অটো-বাটন আসবে না)
 STORAGE_CHANNEL_ID = -1004375264416
 
 # আপনার ব্লগের লিংক (দ্বিতীয় বাটনের জন্য)
@@ -122,26 +122,39 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
     if not channel_post:
         return
 
+    # যদি পোস্টটি আপনার ভিডিও জমানোর প্রাইভেট চ্যানেল বা স্টোরেজ চ্যানেল থেকে আসে, তবে বট কোনো বাটন বসাবে না
+    if channel_post.chat_id == STORAGE_CHANNEL_ID:
+        return
+
     if not channel_post.reply_markup:
         post_text = channel_post.text or channel_post.caption or ""
         
-        # পোস্ট থেকে vid_1 বা শুধু নাম্বার ট্র্যাক করার লজিক
-        match = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
-        
-        if match:
-            vid_number = int(match.group(1))
-            # চ্যানেলের বাটনের জন্য সরাসরি vid_ ফরম্যাট লিংক তৈরি করা যাতে বট খুব সহজে ধরে ফেলতে পারে
+        app_link = ""
+        cleaned_text = post_text
+        button_text = "Video Play 🥵"
+
+        # ১. পোস্ট থেকে vid_ ফরম্যাট খোঁজা (যেমন vid_5)
+        match_vid = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
+        # ২. অথবা ফায়ারবেসের ইউনিক কি ফরম্যাট খোঁজা (যেমন -P0QrDkLvG2NeYnM8WxT)
+        match_fb_key = re.search(r'(-[a-zA-Z0-9_-]{10,})', post_text)
+
+        if match_vid:
+            vid_number = int(match_vid.group(1))
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
-                
-            button_text = "Video Play 🥵"
+            cleaned_text = re.sub(r'vid_\d+', '', post_text, flags=re.IGNORECASE).strip()
             
-            cleaned_text = re.sub(r'vid_\d+', '', post_text).strip()
-            if not cleaned_text:
-                cleaned_text = "✨ ভিডিওটি দেখতে নিচের বাটনে ক্লিক করুন:"
+        elif match_fb_key:
+            firebase_key = match_fb_key.group(1)
+            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={firebase_key}"
+            # ফায়ারবেসের আসল কি-টি টেক্সট থেকে সম্পূর্ণ রিমুভ করে ফেলা
+            cleaned_text = post_text.replace(firebase_key, "").strip()
+            
         else:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
-            button_text = "Video Play 🥵"
             cleaned_text = post_text
+
+        if not cleaned_text:
+            cleaned_text = "✨ ভিডিওটি দেখতে নিচের বাটনে ক্লিক করুন:"
 
         # বাটন লেআউট: দ্বিতীয় বাটনে আপনার ব্লগ সাইটের লিংক বসানো হয়েছে
         keyboard = [
