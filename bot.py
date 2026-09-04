@@ -27,7 +27,7 @@ BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
-# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন (এখানে .reverse() যুক্ত করা হয়েছে)
+# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন (.reverse সহ)
 def get_firebase_key_by_index(index_num):
     try:
         req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
@@ -35,7 +35,7 @@ def get_firebase_key_by_index(index_num):
             data = json.loads(response.read().decode())
             if data and isinstance(data, dict):
                 keys_list = list(data.keys())
-                # মিনি অ্যাপের ভিডিও লিস্টের রিভার্স অর্ডারের সাথে মিল রাখার জন্য এটি দেওয়া হলো
+                # মিনি অ্যাপের ক্রমের সাথে মিল রাখার জন্য রিভার্স করা হলো
                 keys_list.reverse()
                 
                 target_index = index_num - 1
@@ -64,7 +64,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         video_key = args[0]
         
-        # যদি লিংকে vid_ ফরম্যাটে আসে, তবে ফায়ারবেস থেকে আসল কি বের করে আনা
+        # যদি লিংকে vid_ ফরম্যাটে আসে, তবে ফায়ারবেস থেকে সঠিক কি বের করে আনা
         if video_key.startswith("vid_"):
             num_str = video_key.replace("vid_", "")
             if num_str.isdigit():
@@ -111,7 +111,7 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         
         if match:
             vid_number = int(match.group(1))
-            # ফায়ারবেস থেকে সিরিয়াল নম্বর দিয়ে আসল ইউনিক কি (Key) বের করা
+            # ফায়ারবেস থেকে সিরিয়াল নম্বর দিয়ে সঠিক ইউনিক কি (Key) বের করা
             real_firebase_key = get_firebase_key_by_index(vid_number)
             
             if real_firebase_key:
