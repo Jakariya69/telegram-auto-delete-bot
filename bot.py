@@ -27,7 +27,7 @@ BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
-# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন
+# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন (এখানে .reverse() যুক্ত করা হয়েছে)
 def get_firebase_key_by_index(index_num):
     try:
         req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
@@ -35,6 +35,9 @@ def get_firebase_key_by_index(index_num):
             data = json.loads(response.read().decode())
             if data and isinstance(data, dict):
                 keys_list = list(data.keys())
+                # মিনি অ্যাপের ভিডিও লিস্টের রিভার্স অর্ডারের সাথে মিল রাখার জন্য এটি দেওয়া হলো
+                keys_list.reverse()
+                
                 target_index = index_num - 1
                 if 0 <= target_index < len(keys_list):
                     return keys_list[target_index]
