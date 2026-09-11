@@ -4,25 +4,14 @@ import json
 import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import urllib.request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import firebase_admin
-from firebase_admin import credentials, db
 
 # পরিবেশের ভ্যারিয়েবল থেকে বট টোকেন নেওয়া
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ফায়ারবেস ডাটাবেজ ইনিশিয়ালাইজেশন (যদি আপনার রেন্ডারে JSON ফাইল বা এনভায়রনমেন্ট সেট করা থাকে)
-# নোট: আপনার প্রজেক্টে যদি ইতিমধ্যে firebase_admin ইনিশিয়াল করা থাকে, তবে নিচের ব্লকটি আপনার আগের মতো রাখতে পারেন।
-try:
-    if not firebase_admin._apps:
-        # রেন্ডার বা লোকাল এনভায়রনমেন্টের জন্য ডাটাবেজ ইউআরএল সেটআপ
-        firebase_admin.initialize_app(options={
-            'databaseURL': 'https://mini-app-link-default-rtdb.firebaseio.com/'
-        })
-except Exception as e:
-    print(f"Firebase Init Error: {e}")
-
+# ফায়ারবেস ডাটাবেজের রিয়েলটাইম ইউআরএল
 FIREBASE_DB_URL = "https://mini-app-link-default-rtdb.firebaseio.com/tasks.json"
 
 # আপনার প্রাইভেট বোট স্টোরেজ চ্যানেল ID
@@ -46,7 +35,7 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার
+# স্টার্ট কমান্ড হ্যান্ডলার (সঠিকভাবে ভিডিও খোঁজার লজিক)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
@@ -56,31 +45,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_id = 5  # ডিফল্ট ফলব্যাক
 
         try:
-            # যদি প্যারামিটারটি ফায়ারবেসের ইউনিক কি (-P...) হয়
-            if incoming_param.startswith("-"):
-                ref = db.reference(f'tasks/{incoming_param}')
-                item_val = ref.get()
-                if item_val and isinstance(item_val, dict) and 'message_id' in item_val:
-                    msg_id = int(item_val['message_id'])
-            
-            # যদি পুরানো vid_ ফরম্যাট হয়
-            elif incoming_param.startswith("vid_"):
-                num_str = incoming_param.replace("vid_", "")
-                if num_str.isdigit():
-                    msg_id = int(num_str)
-            else:
-                ref = db.reference('tasks')
-                data = ref.get()
+            # ফায়ারবেস থেকে ডাটা ফেচ করে মেসেজ আইডি বের করা
+            req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
                 if data and isinstance(data, dict):
                     if incoming_param in data:
                         item_val = data[incoming_param]
                         if isinstance(item_val, dict) and 'message_id' in item_val:
                             msg_id = int(item_val['message_id'])
+                        elif isinstance(item_val, int):
+                            msg_id = item_val
+                    elif incoming_param.startswith("vid_"):
+                        # যদি পুরনো vid_ ফরম্যাট হয়
+                        num_str = incoming_param.replace("vid_", "")
+                        if num_str.isdigit():
+                            msg_id = int(num_str)
                     else:
                         keys_list = list(data.keys())
                         keys_list.reverse()
                         if incoming_param in keys_list:
-                            msg_id = keys_list.index(incoming_param) + 1
+                            target_val = data[incoming_param]
+                            if isinstance(target_val, dict) and 'message_id' in target_val:
+                                msg_id = int(target_val['message_id'])
 
             sent_msg = await context.bot.copy_message(
                 chat_id=chat_id,
@@ -103,7 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার
+# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার (Urllib POST পদ্ধতি)
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
@@ -119,29 +106,42 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         cleaned_text = post_text
         button_text = "Video Play 🥵"
 
-        # পোস্ট থেকে vid_ নম্বর খুঁজে বের করা (যেমন: vid_21)
+        # টেক্সট থেকে vid_ নম্বর খুঁজে বের করা (যেমন: vid_21)
         match_vid = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
         
-        firebase_key = None
+        vid_number = None
         if match_vid:
-            vid_number = match_vid.group(1)
-            
-            # firebase-admin ব্যবহার করে ফায়ারবেসে ডাটা পুশ করে র্যান্ডম ইউনিক কি (-P...) নেওয়া
-            try:
-                ref = db.reference('tasks')
-                new_ref = ref.push({
-                    "title": f"Video vid_{vid_number}",
-                    "message_id": int(vid_number),
-                    "createdAt": {".sv": "timestamp"},
-                    "views": 0
-                })
-                firebase_key = new_ref.key # এটাই হলো ফায়ারবেসের আসল ইউনিক কি (-P...)
-            except Exception as e:
-                print(f"Firebase Admin Push Error: {e}")
+            vid_number = int(match_vid.group(1))
+        else:
+            vid_number = channel_post.message_id
 
-        # যদি ফায়ারবেস থেকে সফলভাবে ইউনিক কি পাওয়া যায়
+        # ফায়ারবেসে সরাসরি POST রিকোয়েস্ট পাঠিয়ে ইউনিক কি (-P...) জেনারেট করা
+        firebase_key = None
+        try:
+            post_data = json.dumps({
+                "title": f"Video vid_{vid_number}",
+                "message_id": vid_number,
+                "createdAt": {".sv": "timestamp"},
+                "views": 0
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                FIREBASE_DB_URL, 
+                data=post_data, 
+                headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                res_data = json.loads(response.read().decode())
+                if res_data and 'name' in res_data:
+                    firebase_key = res_data['name'] # ফায়ারবেসের অরিজিনাল ইউনিক কি (-P...)
+        except Exception as e:
+            print(f"Firebase HTTP POST Error: {e}")
+
+        # মিনি অ্যাপের লিংকে ইউনিক কি বসানো
         if firebase_key:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={firebase_key}"
+            # পোস্টের টেক্সট থেকে vid_ নম্বরটি রিমুভ করে পরিষ্কার করা
             cleaned_text = re.sub(r'vid_\d+', '', post_text, flags=re.IGNORECASE).strip()
         else:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
