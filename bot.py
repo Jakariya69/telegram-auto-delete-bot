@@ -35,21 +35,22 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার (সঠিকভাবে ভিডিও খোঁজার লজিক)
+# স্টার্ট কমান্ড হ্যান্ডলার (সঠিক ভিডিও আইডি খোঁজার নির্ভুল লজিক)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
 
     if args:
         incoming_param = args[0]
-        msg_id = 5  # ডিফল্ট ফলব্যাক
+        msg_id = None
 
         try:
-            # ফায়ারবেস থেকে ডাটা ফেচ করে মেসেজ আইডি বের করা
+            # ফায়ারবেস থেকে ডাটা ফেচ করা
             req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode())
                 if data and isinstance(data, dict):
+                    # ১. যদি সরাসরি ইউনিক কি (-P...) মিলে যায়
                     if incoming_param in data:
                         item_val = data[incoming_param]
                         if isinstance(item_val, dict):
@@ -59,42 +60,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 match_url = re.search(r'/(\d+)$', str(item_val['url']))
                                 if match_url:
                                     msg_id = int(match_url.group(1))
-                        elif isinstance(item_val, int):
-                            msg_id = item_val
-                    elif incoming_param.startswith("vid_"):
-                        num_str = incoming_param.replace("vid_", "")
-                        if num_str.isdigit():
-                            msg_id = int(num_str)
-                    else:
-                        keys_list = list(data.keys())
-                        keys_list.reverse()
-                        if incoming_param in keys_list:
-                            target_val = data[incoming_param]
-                            if isinstance(target_val, dict) and 'message_id' in target_val:
-                                msg_id = int(target_val['message_id'])
 
-            sent_msg = await context.bot.copy_message(
-                chat_id=chat_id,
-                from_chat_id=STORAGE_CHANNEL_ID,
-                message_id=msg_id
-            )
-            
-            warning_msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
-                parse_mode="Markdown"
-            )
+            if msg_id:
+                sent_msg = await context.bot.copy_message(
+                    chat_id=chat_id,
+                    from_chat_id=STORAGE_CHANNEL_ID,
+                    message_id=msg_id
+                )
+                
+                warning_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⏳ **সতর্কতা:** এই ভিডিওটি আগামী **১ ঘণ্টা** পর্যন্ত থাকবে, এরপর অটোমেটিক মুছে যাবে!",
+                    parse_mode="Markdown"
+                )
 
-            context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': sent_msg.message_id})
-            context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': warning_msg.message_id})
+                context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': sent_msg.message_id})
+                context.job_queue.run_once(delete_message_job, 3600, data={'chat_id': chat_id, 'message_id': warning_msg.message_id})
+            else:
+                await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা লিংকটি মেয়াদোত্তীর্ণ।")
 
         except Exception as e:
             print(f"Copy message error: {e}")
-            await update.message.reply_text("❌ ভিডিওটি পাওয়া যায়নি বা লিংকটি মেয়াদোত্তীর্ণ।")
+            await update.message.reply_text("❌ ভিডিওটি লোড করতে সমস্যা হয়েছে।")
     else:
         await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার (সঠিক ফরম্যাট সহ)
+# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
@@ -110,24 +101,23 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         cleaned_text = post_text
         button_text = "Video Play 🥵"
 
-        # টেক্সট বা লিংক থেকে সঠিক ভিডিও নম্বর বের করা
+        # টেক্সট থেকে শুধু নির্দিষ্ট vid_ নম্বরটি ট্র্যাক করা (যেমন: vid_21 থেকে 21 বের করা)
         match_vid = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
         match_link = re.search(r'https?://t\.me/c/(\d+)/(\d+)', post_text)
         
         vid_number = None
         target_url = ""
 
-        if match_link:
-            target_url = match_link.group(0)
-            vid_number = int(match_link.group(2))
-        elif match_vid:
+        if match_vid:
             vid_number = int(match_vid.group(1))
             target_url = f"https://t.me/c/4375264416/{vid_number}"
+        elif match_link:
+            vid_number = int(match_link.group(2))
+            target_url = match_link.group(0)
         else:
-            vid_number = channel_post.message_id
-            target_url = f"https://t.me/c/4375264416/{vid_number}"
+            return # যদি vid_ বা লিংক কিছুই না থাকে, তবে বট ফায়ারবেসে কোনো ফালতু এন্ট্রি করবে না
 
-        # ফায়ারবেসে অ্যাডমিন প্যানেলের মতো 'url' এবং 'message_id' সহ ডেটা পাঠানো
+        # ফায়ারবেসে সঠিক ডেটা পাঠানো
         firebase_key = None
         try:
             post_data = json.dumps({
@@ -146,7 +136,7 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
             with urllib.request.urlopen(req, timeout=5) as response:
                 res_data = json.loads(response.read().decode())
                 if res_data and 'name' in res_data:
-                    firebase_key = res_data['name'] # ফায়ারবেসের অরিজিনাল ইউনিক কি (-P...)
+                    firebase_key = res_data['name']
         except Exception as e:
             print(f"Firebase HTTP POST Error: {e}")
 
