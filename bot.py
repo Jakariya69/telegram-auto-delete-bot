@@ -52,12 +52,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if data and isinstance(data, dict):
                     if incoming_param in data:
                         item_val = data[incoming_param]
-                        if isinstance(item_val, dict) and 'message_id' in item_val:
-                            msg_id = int(item_val['message_id'])
+                        if isinstance(item_val, dict):
+                            if 'message_id' in item_val:
+                                msg_id = int(item_val['message_id'])
+                            elif 'url' in item_val:
+                                match_url = re.search(r'/(\d+)$', str(item_val['url']))
+                                if match_url:
+                                    msg_id = int(match_url.group(1))
                         elif isinstance(item_val, int):
                             msg_id = item_val
                     elif incoming_param.startswith("vid_"):
-                        # যদি পুরনো vid_ ফরম্যাট হয়
                         num_str = incoming_param.replace("vid_", "")
                         if num_str.isdigit():
                             msg_id = int(num_str)
@@ -90,7 +94,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার (Urllib POST পদ্ধতি)
+# অটো-বাটন এবং ফায়ারবেস কি জেনারেটর হ্যান্ডলার (সঠিক ফরম্যাট সহ)
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
@@ -106,20 +110,28 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         cleaned_text = post_text
         button_text = "Video Play 🥵"
 
-        # টেক্সট থেকে vid_ নম্বর খুঁজে বের করা (যেমন: vid_21)
+        # টেক্সট বা লিংক থেকে সঠিক ভিডিও নম্বর বের করা
         match_vid = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
+        match_link = re.search(r'https?://t\.me/c/(\d+)/(\d+)', post_text)
         
         vid_number = None
-        if match_vid:
+        target_url = ""
+
+        if match_link:
+            target_url = match_link.group(0)
+            vid_number = int(match_link.group(2))
+        elif match_vid:
             vid_number = int(match_vid.group(1))
+            target_url = f"https://t.me/c/4375264416/{vid_number}"
         else:
             vid_number = channel_post.message_id
+            target_url = f"https://t.me/c/4375264416/{vid_number}"
 
-        # ফায়ারবেসে সরাসরি POST রিকোয়েস্ট পাঠিয়ে ইউনিক কি (-P...) জেনারেট করা
+        # ফায়ারবেসে অ্যাডমিন প্যানেলের মতো 'url' এবং 'message_id' সহ ডেটা পাঠানো
         firebase_key = None
         try:
             post_data = json.dumps({
-                "title": f"Video vid_{vid_number}",
+                "url": target_url,
                 "message_id": vid_number,
                 "createdAt": {".sv": "timestamp"},
                 "views": 0
@@ -141,8 +153,8 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         # মিনি অ্যাপের লিংকে ইউনিক কি বসানো
         if firebase_key:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={firebase_key}"
-            # পোস্টের টেক্সট থেকে vid_ নম্বরটি রিমুভ করে পরিষ্কার করা
             cleaned_text = re.sub(r'vid_\d+', '', post_text, flags=re.IGNORECASE).strip()
+            cleaned_text = re.sub(r'https?://t\.me/c/\d+/\d+', '', cleaned_text).strip()
         else:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
             cleaned_text = post_text
