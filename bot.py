@@ -27,24 +27,6 @@ BACKUP_CHANNEL_URL = "https://t.me/+VxzFPhQVKrViNjE1"
 BOT_USERNAME = "arohimimvirallinkjk_bot"
 APP_NAME = "Master_King"
 
-# ফায়ারবেস থেকে সিরিয়াল অনুযায়ী আসল ইউনিক কি (Key) বের করার ফাংশন (.reverse সহ)
-def get_firebase_key_by_index(index_num):
-    try:
-        req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            if data and isinstance(data, dict):
-                keys_list = list(data.keys())
-                # মিনি অ্যাপের ক্রমের সাথে মিল রাখার জন্য রিভার্স করা হলো
-                keys_list.reverse()
-                
-                target_index = index_num - 1
-                if 0 <= target_index < len(keys_list):
-                    return keys_list[target_index]
-    except Exception as e:
-        print(f"Firebase fetch error: {e}")
-    return None
-
 # JobQueue থেকে কল হওয়া মেসেজ ডিলিট করার ফাংশন
 async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     job_data = context.job.data
@@ -56,7 +38,7 @@ async def delete_message_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Delete failed: {e}")
 
-# স্টার্ট কমান্ড হ্যান্ডলার (সঠিকভাবে ভিডিও পাঠানোর লজিক সহ)
+# স্টার্ট কমান্ড হ্যান্ডলার (সঠিকভাবে ফায়ারবেস কি দিয়ে ভিডিও খোঁজার লজিক)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     chat_id = update.effective_chat.id
@@ -66,29 +48,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_id = 5  # ডিফল্ট ফলব্যাক
 
         try:
-            # ১. যদি প্যারামিটারটি vid_ ফরম্যাটে আসে (যেমন: vid_6)
-            if incoming_param.startswith("vid_"):
+            # ১. যদি প্যারামিটারটি ফায়ারবেসের ইউনিক কি (Key) হিসেবে আসে (যেমন: -P19GwsrApY...)
+            if incoming_param.startswith("-"):
+                msg_id = int(incoming_param) # সরাসরি ইউনিক কি অথবা স্টোরেজ চ্যানেলের মেসেজ আইডি হ্যান্ডেল করার জন্য
+                
+            # ২. যদি প্যারামিটারটি পুরানো vid_ ফরম্যাটে আসে
+            elif incoming_param.startswith("vid_"):
                 num_str = incoming_param.replace("vid_", "")
                 if num_str.isdigit():
-                    vid_num = int(num_str)
-                    # সরাসরি চ্যানেলের মেসেজ আইডি হিসেবে ইনডেক্স নম্বরটি ব্যবহার করা
-                    msg_id = vid_num
-
-            # ২. যদি প্যারামিটারটি সরাসরি ফায়ারবেসের ইউনিক কি (Key) হিসেবে আসে
+                    msg_id = int(num_str)
             else:
-                # ফায়ারবেস থেকে ডাটা চেক করে দেখা যে এই কি-এর বিপরীতে কোনো মেসেজ আইডি আছে কি না
+                # ফায়ারবেস থেকে ডাটা চেক করা
                 req = urllib.request.Request(FIREBASE_DB_URL, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
                     data = json.loads(response.read().decode())
-                    if data and isinstance(data, dict) and incoming_param in data:
-                        item_val = data[incoming_param]
-                        # যদি ডাটার ভেতর সরাসরি মেসেজ আইডি সেভ করা থাকে
-                        if isinstance(item_val, dict) and 'message_id' in item_val:
-                            msg_id = int(item_val['message_id'])
-                        elif isinstance(item_val, int):
-                            msg_id = item_val
+                    if data and isinstance(data, dict):
+                        if incoming_param in data:
+                            item_val = data[incoming_param]
+                            if isinstance(item_val, dict) and 'message_id' in item_val:
+                                msg_id = int(item_val['message_id'])
+                            elif isinstance(item_val, int):
+                                msg_id = item_val
                         else:
-                            # যদি কি দিয়ে সরাসরি না মেলে, তবে কি-এর পজিশন বা ইনডেক্স বের করে হিসাব করা
                             keys_list = list(data.keys())
                             keys_list.reverse()
                             if incoming_param in keys_list:
@@ -116,13 +97,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👋 স্বাগতম! ভিডিও দেখতে মিনি অ্যাপ ব্যবহার করুন।")
 
-# অটো-বাটন এবং টেক্সট ক্লিনার হ্যান্ডলার
+# অটো-বাটন এবং টেক্সট ক্লিনার হ্যান্ডলার (ফায়ারবেস অরিজিনাল কি জেনারেটর সহ)
 async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_post = update.channel_post
     if not channel_post:
         return
 
-    # যদি পোস্টটি আপনার ভিডিও জমানোর প্রাইভেট চ্যানেল বা স্টোরেজ চ্যানেল থেকে আসে, তবে বট কোনো বাটন বসাবে না
+    # যদি পোস্টটি আপনার স্টোরেজ চ্যানেল থেকে আসে, তবে বট কোনো বাটন বসাবে না
     if channel_post.chat_id == STORAGE_CHANNEL_ID:
         return
 
@@ -133,22 +114,41 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         cleaned_text = post_text
         button_text = "Video Play 🥵"
 
-        # ১. পোস্ট থেকে vid_ ফরম্যাট খোঁজা (যেমন vid_5)
+        # পোস্ট থেকে যেকোনো vid_ নম্বর খুঁজে বের করা (যেমন vid_6, vid_20 ইত্যাদি)
         match_vid = re.search(r'vid_(\d+)', post_text, re.IGNORECASE)
-        # ২. অথবা ফায়ারবেসের ইউনিক কি ফরম্যাট খোঁজা (যেমন -P0QrDkLvG2NeYnM8WxT)
-        match_fb_key = re.search(r'(-[a-zA-Z0-9_-]{10,})', post_text)
-
+        
+        firebase_key = None
         if match_vid:
-            vid_number = int(match_vid.group(1))
-            app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp=vid_{vid_number}"
-            cleaned_text = re.sub(r'vid_\d+', '', post_text, flags=re.IGNORECASE).strip()
+            vid_number = match_vid.group(1)
             
-        elif match_fb_key:
-            firebase_key = match_fb_key.group(1)
+            # ফায়ারবেসে ডেটা পাঠিয়ে র্যান্ডম ইউনিক কি (-P...) অটো জেনারেট করা
+            try:
+                post_data = json.dumps({
+                    "title": f"Video vid_{vid_number}",
+                    "message_id": int(vid_number),
+                    "createdAt": {".sv": "timestamp"},
+                    "views": 0
+                }).encode('utf-8')
+
+                req = urllib.request.Request(
+                    FIREBASE_DB_URL, 
+                    data=post_data, 
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+                    method='POST'
+                )
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    res_data = json.loads(response.read().decode())
+                    if res_data and 'name' in res_data:
+                        firebase_key = res_data['name'] # ফায়ারবেসের অরিজিনাল ইউনিক কি (-P...)
+            except Exception as e:
+                print(f"Firebase Auto-Push Error: {e}")
+
+        # যদি ফায়ারবেস থেকে ইউনিক কি সফলভাবে আসে
+        if firebase_key:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}?startapp={firebase_key}"
-            # ফায়ারবেসের আসল কি-টি টেক্সট থেকে সম্পূর্ণ রিমুভ করে ফেলা
-            cleaned_text = post_text.replace(firebase_key, "").strip()
             
+            # পোস্টের টেক্সট থেকে vid_ নম্বরটি রিমুভ করে পরিষ্কার করা
+            cleaned_text = re.sub(r'vid_\d+', '', post_text, flags=re.IGNORECASE).strip()
         else:
             app_link = f"https://t.me/{BOT_USERNAME}/{APP_NAME}"
             cleaned_text = post_text
@@ -156,7 +156,7 @@ async def auto_add_buttons_to_channel(update: Update, context: ContextTypes.DEFA
         if not cleaned_text:
             cleaned_text = "✨ ভিডিওটি দেখতে নিচের বাটনে ক্লিক করুন:"
 
-        # বাটন লেআউট: দ্বিতীয় বাটনে আপনার ব্লগ সাইটের লিংক বসানো হয়েছে
+        # ইনলাইন বাটন লেআউট তৈরি
         keyboard = [
             [InlineKeyboardButton(button_text, url=app_link)],
             [InlineKeyboardButton("🌐 Visit Blog Site", url=BLOG_URL)],
